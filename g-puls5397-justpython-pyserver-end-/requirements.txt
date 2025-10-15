@@ -1,0 +1,11 @@
+# Django和REST框架
+django>=5.2.2
+djangorestframework>=3.14.0
+
+# 分布式存储系统依赖（可选）
+pika>=1.3.0  # RabbitMQ客户端
+elasticsearch>=8.0.0  # Elasticsearch客户端
+clickhouse-driver>=0.2.0  # ClickHouse客户端
+
+# 其他依赖
+requests>=2.28.0  # 用于测试脚本

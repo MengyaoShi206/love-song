@@ -1,0 +1,1 @@
+# 初始化文件，使Django能够识别commands目录
