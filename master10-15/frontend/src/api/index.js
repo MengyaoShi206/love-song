@@ -10,3 +10,7 @@ export const updateProfile        = (uid, data) => api.put(`user/profile/${uid}`
 export const recomputeCompletion  = (uid)       => api.post(`user/completion/${uid}`)
 export const getMatchLikes = (uid, params) => api.get(`user/match/likes/${uid}`, { params })
 export const getMatchMutual = (uid, params) => api.get(`user/match/mutual/${uid}`, { params })
+export const getRecommendUsers = (uid, params) => api.get(`user/recommend/${uid}`, { params })
+export const getLikedMe = (uid, params) => api.get(`user/match/liked_me/${uid}`, { params })
+
+export const likeUser = (liker_id, likee_id) => api.post('user/like', { liker_id, likee_id })
