@@ -1,36 +1,16 @@
-import { createRouter, createWebHistory } from 'vue-router'
-import Home from '../views/HomeView.vue'
-import Register from '../views/RegisterView.vue'
-import MainLayout from '../views/MainLayout.vue'
-import Login from '../views/LoginView.vue' 
-import MatchDisplay from '../views/MatchDisplayView.vue'
-import DisplayView from '../views/DisplayView.vue'
+// frontend/src/api/index.js
+import axios from 'axios'
+// const api = axios.create({ baseURL: 'http://127.0.0.1:8000/api/' })
+const api = axios.create({ baseURL: 'http://172.20.60.50:8000/api/' })
 
+export const loginUser    = (payload) => api.post('user/login', payload)
+export const registerUser = (payload) => api.post('user/register', payload)
+export const getDisplay = (uid) => api.get(`user/main/${uid}`)
+export const updateProfile        = (uid, data) => api.put(`user/profile/${uid}`, data)
+export const recomputeCompletion  = (uid)       => api.post(`user/completion/${uid}`)
+export const getMatchLikes = (uid, params) => api.get(`user/match/likes/${uid}`, { params })
+export const getMatchMutual = (uid, params) => api.get(`user/match/mutual/${uid}`, { params })
+export const getRecommendUsers = (uid, params) => api.get(`user/recommend/${uid}`, { params })
+export const getLikedMe = (uid, params) => api.get(`user/match/liked_me/${uid}`, { params })
 
-const routes = [
-  // 首页
-  { path: '/', component: Home },
-
-  // 注册页
-  { path: '/register', component: Register },
-
-  // 登录页
-  { path: '/login', component: Login }, 
-
-  // 主页面
-  { path: '/main', component: MainLayout }, 
-
-  // 匹配页面
-  { path: '/match', component: MatchDisplay },
-  
-  // 展示喜欢的人的资料
-  { path: '/display/:uid', name: 'display', component: DisplayView, props: true },
-
-  // 未知路径跳回首页
-  { path: '/:pathMatch(.*)*', redirect: '/' }
-]
-
-export default createRouter({
-  history: createWebHistory(),
-  routes
-})
+export const likeUser = (liker_id, likee_id) => api.post('user/like', { liker_id, likee_id })
