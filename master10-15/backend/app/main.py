@@ -2,6 +2,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from app.api import user_api
 from app.database import init_db
+from app.utils.multi_writer import DorisQueue
 
 app = FastAPI(title="Marry System API", version="0.1.0")
 
@@ -13,7 +14,8 @@ app.add_middleware(
 
 @app.on_event("startup")
 def startup_event():
-    init_db()
+    # init_db()
+    DorisQueue.start()
 
 # 路由挂载
 app.include_router(user_api.router, prefix="/api/user", tags=["User"])

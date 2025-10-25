@@ -1,10 +1,12 @@
 # backend/app/api/user.py
+from operator import and_
 from fastapi import APIRouter, HTTPException, Depends # type: ignore
 from sqlalchemy.orm import Session # type: ignore
 from typing import Any, Dict, Optional, List
 from pydantic import BaseModel, EmailStr, Field, field_validator
 import re
 from sqlalchemy import func, or_, desc # type: ignore
+from app.utils.multi_writer import MultiWriter
 
 from app.database import SessionLocal
 from app.models.user import (UserAccount, UserProfilePublic, UserMedia,
@@ -12,9 +14,11 @@ from app.models.user import (UserAccount, UserProfilePublic, UserMedia,
                               UserSubscription, UserLike, Match
                             )
 from datetime import date, datetime
+from app.services.recommend_service import RecommendService
 
 
 router = APIRouter()
+recommend_service = RecommendService()
 
 def get_db():
     db = SessionLocal()
@@ -370,6 +374,8 @@ def register_user(payload: UserCreate, db: Session = Depends(get_db)):
     prof.updated_at = datetime.utcnow()
     db.commit()
 
+    # 同步 MySQL + 异步 Doris
+    MultiWriter.write(new_user, db=db, mirror=True)   
     return {
         "id": new_user.id,
         "username": new_user.username,
@@ -567,9 +573,9 @@ def recompute_completion(uid: int, db: Session = Depends(lambda: SessionLocal())
     return {"completion_score": score, "breakdown": detail}
 
 @router.get("/match/likes/{uid}")
-def list_likes(uid: int, page: int = 1, page_size: int = 12, db: Session = Depends(get_db)):
+def list_likes(uid: int, page: int = 1, page_size: int = 1, db: Session = Depends(get_db)):
     if page < 1: page = 1
-    if page_size < 1 or page_size > 100: page_size = 12
+    if page_size < 1 : page_size = 1
 
     me = db.query(UserAccount).filter(UserAccount.id == uid).first()
     if not me:
@@ -591,19 +597,113 @@ def list_likes(uid: int, page: int = 1, page_size: int = 12, db: Session = Depen
     profs = db.query(UserProfilePublic).filter(UserProfilePublic.user_id.in_(page_ids)).all()
     prof_map = {p.user_id: p for p in profs}
 
-    items = [{
-        "id": u.id,
-        "username": u.username,
-        "nickname": u.nickname,
-        "city": u.city,
-        "gender": u.gender,
-        "age": (datetime.utcnow().year - u.birth_date.year
-                - ((datetime.utcnow().month, datetime.utcnow().day) < (u.birth_date.month, u.birth_date.day))
-               ) if u.birth_date else None,
-        "avatar_url": u.avatar_url,
-        "tagline": (prof_map.get(u.id).tagline if prof_map.get(u.id) else "") or "",
-        "bio": (prof_map.get(u.id).bio if prof_map.get(u.id) else "") or "",
-    } for u in users]
+    # 批量查询 Match 状态（判断是否双向匹配）
+    match_rows = db.query(Match).filter(
+        or_(
+            and_(Match.user_a == uid, Match.user_b.in_(page_ids)),
+            and_(Match.user_b == uid, Match.user_a.in_(page_ids))
+        )
+    ).all()
+    matched_ids = {m.user_a if m.user_b == uid else m.user_b for m in match_rows}
+
+    # 拼装数据
+    items = []
+    for u in users:
+        match_status = "matched" if u.id in matched_ids else "pending"
+        prof = prof_map.get(u.id)
+        items.append({
+            "id": u.id,
+            "username": u.username,
+            "nickname": u.nickname,
+            "city": u.city,
+            "gender": u.gender,
+            "age": (datetime.utcnow().year - u.birth_date.year
+                    - ((datetime.utcnow().month, datetime.utcnow().day)
+                       < (u.birth_date.month, u.birth_date.day))) if u.birth_date else None,
+            "avatar_url": u.avatar_url,
+            "tagline": prof.tagline if prof else "",
+            "bio": prof.bio if prof else "",
+            "match_status": match_status,
+        })
+
+    return {"items": items, "page": page, "page_size": page_size, "total": total}
+
+
+@router.get("/match/liked_me/{uid}")
+def list_liked_me(uid: int, page: int = 1, page_size: int = 1, db: Session = Depends(get_db)):
+    if page < 1: page = 1
+    if page_size < 1: page_size = 1
+
+    me = db.query(UserAccount).filter(UserAccount.id == uid).first()
+    if not me:
+        raise HTTPException(404, "用户不存在")
+
+    # 找到“喜欢了我”的记录（给我点过赞的人）
+    rows = db.query(UserLike).filter(UserLike.likee_id == uid).order_by(desc(UserLike.created_at)).all()
+
+    # 提取点赞者 id，按时间顺序去重
+    from_ids = []
+    seen = set()
+    for r in rows:
+        lid = getattr(r, "liker_id", None)
+        if lid and lid not in seen:
+            seen.add(lid)
+            from_ids.append(lid)
+
+    total = len(from_ids)
+    start, end = (page - 1) * page_size, (page - 1) * page_size + page_size
+    page_ids = from_ids[start:end]
+
+    if not page_ids:
+        return {"items": [], "page": page, "page_size": page_size, "total": total}
+
+    users = db.query(UserAccount).filter(UserAccount.id.in_(page_ids)).all()
+    profs = db.query(UserProfilePublic).filter(UserProfilePublic.user_id.in_(page_ids)).all()
+    prof_map = {p.user_id: p for p in profs}
+
+    # 查我是否也喜欢了他们（用于判断是否 matched）
+    my_likes = db.query(UserLike).filter(
+        UserLike.liker_id == uid,
+        UserLike.likee_id.in_(page_ids)
+    ).all()
+    my_liked_ids = {r.likee_id for r in my_likes}
+
+    # 查 Match 表（双向匹配）
+    match_rows = db.query(Match).filter(
+        or_(
+            and_(Match.user_a == uid, Match.user_b.in_(page_ids)),
+            and_(Match.user_b == uid, Match.user_a.in_(page_ids))
+        )
+    ).all()
+    matched_ids = {m.user_a if m.user_b == uid else m.user_b for m in match_rows}
+
+    # 拼装输出
+    order_index = {uid_: i for i, uid_ in enumerate(page_ids)}
+    users_sorted = sorted(users, key=lambda u: order_index.get(u.id, 10**9))
+
+    items = []
+    for u in users_sorted:
+        prof = prof_map.get(u.id)
+        if u.id in matched_ids:
+            status = "matched"
+        elif u.id in my_liked_ids:
+            status = "pending"  # 我已喜欢对方，等待匹配确认
+        else:
+            status = "waiting"  # 对方喜欢我，我未操作
+        items.append({
+            "id": u.id,
+            "username": u.username,
+            "nickname": u.nickname,
+            "city": u.city,
+            "gender": u.gender,
+            "age": (datetime.utcnow().year - u.birth_date.year
+                    - ((datetime.utcnow().month, datetime.utcnow().day)
+                       < (u.birth_date.month, u.birth_date.day))) if u.birth_date else None,
+            "avatar_url": u.avatar_url,
+            "tagline": prof.tagline if prof else "",
+            "bio": prof.bio if prof else "",
+            "match_status": status
+        })
 
     return {"items": items, "page": page, "page_size": page_size, "total": total}
 
@@ -655,3 +755,106 @@ def list_mutual(uid: int, page: int = 1, page_size: int = 12, db: Session = Depe
 
     items = [_user_brief(u, prof_map.get(u.id)) for u in users_sorted]
     return {"items": items, "page": page, "page_size": page_size, "total": total}
+
+
+# ======== 为您推荐 =======
+@router.get("/recommend/{uid}")
+def recommend_users(uid: int, limit: int = 20, page: int = 1, min_completion: int = 0, db: Session = Depends(get_db)):
+    """
+    为您推荐：系统内聚算法（无外部引擎依赖）。
+    - min_completion: 候选完善度门槛（0~100）
+    """
+    res = recommend_service.recommend_for_user(db, uid, limit=limit, min_completion=min_completion)
+    return res
+
+
+# ======== 新增一个喜欢的 =======
+@router.post("/like")
+def like_user(payload: dict, db: Session = Depends(get_db)):
+    liker_id = int(payload.get("liker_id") or 0)
+    likee_id = int(payload.get("likee_id") or 0)
+    if not liker_id or not likee_id:
+        raise HTTPException(400, "liker_id / likee_id 缺失")
+    if liker_id == likee_id:
+        raise HTTPException(400, "不能喜欢自己")
+
+    # 基本存在性检查
+    a = db.query(UserAccount).filter(UserAccount.id == liker_id).first()
+    b = db.query(UserAccount).filter(UserAccount.id == likee_id).first()
+    if not a or not b:
+        raise HTTPException(404, "用户不存在")
+
+    # 1) 幂等 upsert：我->对方 的喜欢记录
+    like = (
+        db.query(UserLike)
+        .filter(UserLike.liker_id == liker_id, UserLike.likee_id == likee_id)
+        .first()
+    )
+    now = datetime.utcnow()
+    if like:
+        # 已存在就不重复插，只更新时间
+        like.updated_at = now
+    else:
+        like = UserLike(
+            liker_id=liker_id,
+            likee_id=likee_id,
+            status="pending",
+            created_at=now,
+            updated_at=now,
+        )
+        db.add(like)
+
+    # 2) 检查对方是否也喜欢我（对方->我）
+    reverse = (
+        db.query(UserLike)
+        .filter(UserLike.liker_id == likee_id, UserLike.likee_id == liker_id)
+        .first()
+    )
+
+    matched = False
+    if reverse:
+        # 有反向喜欢 => 形成互相喜欢
+        like.status = "accepted"
+        reverse.status = "accepted"
+        like.updated_at = now
+        reverse.updated_at = now
+
+        # 3) Match 表去重插入
+        exists = (
+            db.query(Match)
+            .filter(
+                or_(
+                    and_(Match.user_a == min(liker_id, likee_id), Match.user_b == max(liker_id, likee_id)),
+                    and_(Match.user_a == max(liker_id, likee_id), Match.user_b == min(liker_id, likee_id))
+                )
+            )
+            .first()
+        )
+        if not exists:
+            db.add(Match(
+                user_a=min(liker_id, likee_id),
+                user_b=max(liker_id, likee_id),
+                active=True,
+                created_at=now
+            ))
+        matched = True
+
+    db.commit()
+
+    # 给前端一个明确的动作提示，便于选择刷新哪些列表
+    return {
+        "ok": True,
+        "status": "matched" if matched else "pending",
+        "refresh": ["likes", "likedMe", "mutual"] if matched else ["likes", "likedMe"]
+    }
+
+# @router.post("/behavior/{uid}")
+# async def log_behavior(uid: int, payload: dict):
+#     record = UserBehaviorLog(
+#         user_id=uid,
+#         event_name=payload.get("event_name"),
+#         event_time=datetime.utcnow(),
+#         event_props=payload.get("event_props"),
+#     )
+#     await DorisQueue.add(record)
+#     return {"ok": True}

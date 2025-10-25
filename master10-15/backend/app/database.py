@@ -13,18 +13,39 @@ DATA_DIR.mkdir(parents=True, exist_ok=True)
 # 把 DB 放在 data/ 下，便于和 CSV 放一起
 DB_PATH = DATA_DIR / "marry.db"
 
-# 允许通过环境变量覆盖（可选）
-SQLALCHEMY_DATABASE_URL = os.getenv(
-    "MARRY_DB_URL",
-    f"sqlite:///{DB_PATH}"
-)
+# 默认：SQLite（本地调试）
+DEFAULT_SQLITE_URL = f"sqlite:///{DB_PATH}"
+
+# 环境变量优先（生产环境可切换 MySQL / Doris）
+MYSQL_URL = os.getenv("MARRY_MYSQL_URL")  # e.g. mysql+pymysql://user:pwd@host:3306/marry
+DORIS_URL = os.getenv("MARRY_DORIS_URL")  # e.g. mysql+pymysql://user:pwd@host:9030/marry_analytics
+SQLITE_URL = os.getenv("MARRY_SQLITE_URL", DEFAULT_SQLITE_URL)
+
+# 当前主库 URL
+SQLALCHEMY_DATABASE_URL = MYSQL_URL or SQLITE_URL
 
 # SQLite for FastAPI（同线程限制关闭）
-engine = create_engine(
+engine_main = create_engine(
     SQLALCHEMY_DATABASE_URL,
-    connect_args={"check_same_thread": False} if SQLALCHEMY_DATABASE_URL.startswith("sqlite") else {}
+    pool_pre_ping=True,
+    pool_recycle=3600,
+    connect_args={"check_same_thread": False}
+    if SQLALCHEMY_DATABASE_URL.startswith("sqlite")
+    else {},
 )
-SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
+
+engine_doris = (
+    create_engine(DORIS_URL, pool_pre_ping=True, pool_recycle=3600)
+    if DORIS_URL
+    else None
+)
+
+SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine_main)
+SessionDoris = (
+    sessionmaker(autocommit=False, autoflush=False, bind=engine_doris)
+    if engine_doris
+    else None
+)
 Base = declarative_base()
 
 def init_db():
@@ -35,25 +56,31 @@ def init_db():
     # 延迟导入，避免循环引用
     from .models import user as user_models
     from .models import platform as platform_models
-    Base.metadata.create_all(bind=engine)
+    Base.metadata.create_all(bind=engine_main)
 
-    # 检查是否需要导入
-    try:
-        from sqlalchemy import text
-        with engine.connect() as conn:
-            # 是否已有用户
-            has_user_table = conn.execute(
-                text("SELECT name FROM sqlite_master WHERE type='table' AND name='user_account'")
-            ).fetchone()
-            if not has_user_table:
-                # 刚刚才建表，直接导入
-                _seed_from_csv()
-            else:
-                existing = conn.execute(text("SELECT COUNT(1) FROM user_account")).scalar()
-                if (existing or 0) == 0:
+    # 仅在 SQLite 模式下尝试导入 CSV
+    if SQLALCHEMY_DATABASE_URL.startswith("sqlite"):
+        try:
+            from sqlalchemy import text
+
+            with engine_main.connect() as conn:
+                has_table = conn.execute(
+                    text(
+                        "SELECT name FROM sqlite_master WHERE type='table' AND name='user_account'"
+                    )
+                ).fetchone()
+
+                if not has_table:
                     _seed_from_csv()
-    except Exception as e:
-        print(f"[init_db] 初始化时未能检查/导入数据（可忽略）：{e}")
+                else:
+                    existing = conn.execute(
+                        text("SELECT COUNT(1) FROM user_account")
+                    ).scalar()
+                    if (existing or 0) == 0:
+                        _seed_from_csv()
+
+        except Exception as e:
+            print(f"[init_db] 初始化时未能检查/导入数据（可忽略）：{e}")
 
 def _seed_from_csv():
     """调用项目内的导入脚本，把 data/ 下 CSV 全部导入到 data/marry.db。"""
