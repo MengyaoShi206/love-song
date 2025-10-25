@@ -1,22 +1,20 @@
 <template>
     <div class="layout">
-      <!-- 左侧菜单（与 Main/Match 保持一致） -->
+      <!-- 左侧菜单 -->
       <aside class="sidebar">
         <el-card class="sidebar-card" shadow="never">
           <div class="brand-meta">
             <div class="brand-title">资料详情</div>
-            <div class="brand-sub">查看对方公开资料</div>
+            <div class="brand-sub">来自“为您推荐”</div>
           </div>
-  
-          <el-menu :default-active="'display'" class="pretty-menu" @select="onSelect" :router="false">
-            <el-menu-item index="display"><el-icon><User /></el-icon><span>资料展示</span></el-menu-item>
+          <el-menu :default-active="'displayRecommend'" class="pretty-menu" @select="onSelect" :router="false">
+            <el-menu-item index="displayRecommend"><el-icon><User /></el-icon><span>资料展示</span></el-menu-item>
           </el-menu>
         </el-card>
       </aside>
   
       <!-- 右侧内容 -->
       <main class="content">
-        <!-- 顶部栏：头像 + 名称 + 右上角返回 -->
         <div class="topbar">
           <div class="topbar-left">
             <el-avatar :size="56" :src="ua.avatar_url || ''" />
@@ -26,11 +24,11 @@
             </div>
           </div>
           <div class="topbar-actions">
-            <el-button type="primary" @click="goBackLikes">返回“您的喜欢”</el-button>
+            <el-button type="primary" @click="goBackRecommend">返回“为您推荐”</el-button>
           </div>
         </div>
   
-        <!-- 1. 基础信息（不展示手机号/邮箱） -->
+        <!-- 1 基础信息 -->
         <el-card shadow="never" class="section">
           <template #header>基础信息</template>
           <el-descriptions :column="2" border>
@@ -45,7 +43,7 @@
           </el-descriptions>
         </el-card>
   
-        <!-- 2. 公开资料 -->
+        <!-- 2 公开资料 -->
         <el-card shadow="never" class="section">
           <template #header>公开资料</template>
           <div class="mb-2"><b>个性签名：</b>{{ up.tagline || '—' }}</div>
@@ -53,7 +51,7 @@
           <div class="bio">{{ up.bio || '—' }}</div>
         </el-card>
   
-        <!-- 3. 择偶意向 -->
+        <!-- 3 择偶意向 -->
         <el-card shadow="never" class="section">
           <template #header>择偶意向</template>
           <el-descriptions :column="2" border>
@@ -76,7 +74,7 @@
           </el-descriptions>
         </el-card>
   
-        <!-- 4. 生活方式 -->
+        <!-- 4 生活方式 -->
         <el-card shadow="never" class="section">
           <template #header>生活方式</template>
           <el-descriptions :column="2" border>
@@ -90,7 +88,7 @@
           </el-descriptions>
         </el-card>
   
-        <!-- 5. 问答展示 -->
+        <!-- 5 问答展示 -->
         <el-card shadow="never" class="section">
           <template #header>问答展示</template>
           <div v-if="qna.length">
@@ -108,7 +106,7 @@
   <script setup>
   import { reactive, computed, onMounted } from 'vue'
   import { useRoute, useRouter } from 'vue-router'
-  import { User, Setting } from '@element-plus/icons-vue'
+  import { User } from '@element-plus/icons-vue'
   import { getDisplay } from '@/api'
   
   const route = useRoute()
@@ -123,10 +121,10 @@
     user_qna: []
   })
   
-  const ua = computed(() => display.user_account || {})
-  const up = computed(() => display.user_profile_public || {})
-  const ui = computed(() => display.user_intention || {})
-  const ul = computed(() => display.user_lifestyle || {})
+  const ua  = computed(() => display.user_account || {})
+  const up  = computed(() => display.user_profile_public || {})
+  const ui  = computed(() => display.user_intention || {})
+  const ul  = computed(() => display.user_lifestyle || {})
   const qna = computed(() => display.user_qna || [])
   
   function yn(v) {
@@ -134,9 +132,7 @@
     if (v === false || v === 0 || v === '0' || v === 'false') return '否'
     return '—'
   }
-  function numOrDash(v) {
-    return (v === 0 || v) ? v : '—'
-  }
+  function numOrDash(v) { return (v === 0 || v) ? v : '—' }
   function displayCities(v) {
     if (!v) return '—'
     try {
@@ -147,16 +143,14 @@
   }
   
   function onSelect(key) {
-    if (key === 'display') router.push('/main')
-    if (key === 'match') router.push('/match')
+    if (key === 'displayRecommend') router.push({ path: '/match', query: { tab: 'recommend' } })
   }
-  
-  function goBackLikes() {
-    router.push({ path: '/match', query: { tab: 'likes' } })
+  function goBackRecommend() {
+    router.push({ path: '/match', query: { tab: 'recommend' } })
   }
   
   async function load() {
-    const { data } = await getDisplay(viewedUid)
+    const { data } = await getDisplay(viewedUid) // 继续复用详情接口
     Object.assign(display, data || {})
   }
   onMounted(load)

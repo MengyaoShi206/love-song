@@ -5,11 +5,11 @@
         <el-card class="sidebar-card" shadow="never">
           <div class="brand-meta">
             <div class="brand-title">资料详情</div>
-            <div class="brand-sub">查看对方公开资料</div>
+            <div class="brand-sub">来自“喜欢你的人”</div>
           </div>
   
-          <el-menu :default-active="'display'" class="pretty-menu" @select="onSelect" :router="false">
-            <el-menu-item index="display"><el-icon><User /></el-icon><span>资料展示</span></el-menu-item>
+          <el-menu :default-active="'displayLiked'" class="pretty-menu" @select="onSelect" :router="false">
+            <el-menu-item index="displayLiked"><el-icon><User /></el-icon><span>资料展示</span></el-menu-item>
           </el-menu>
         </el-card>
       </aside>
@@ -26,7 +26,7 @@
             </div>
           </div>
           <div class="topbar-actions">
-            <el-button type="primary" @click="goBackLikes">返回“您的喜欢”</el-button>
+            <el-button type="primary" @click="goBackLikedMe">返回“喜欢你的人”</el-button>
           </div>
         </div>
   
@@ -108,7 +108,7 @@
   <script setup>
   import { reactive, computed, onMounted } from 'vue'
   import { useRoute, useRouter } from 'vue-router'
-  import { User, Setting } from '@element-plus/icons-vue'
+  import { User } from '@element-plus/icons-vue'
   import { getDisplay } from '@/api'
   
   const route = useRoute()
@@ -123,10 +123,10 @@
     user_qna: []
   })
   
-  const ua = computed(() => display.user_account || {})
-  const up = computed(() => display.user_profile_public || {})
-  const ui = computed(() => display.user_intention || {})
-  const ul = computed(() => display.user_lifestyle || {})
+  const ua  = computed(() => display.user_account || {})
+  const up  = computed(() => display.user_profile_public || {})
+  const ui  = computed(() => display.user_intention || {})
+  const ul  = computed(() => display.user_lifestyle || {})
   const qna = computed(() => display.user_qna || [])
   
   function yn(v) {
@@ -147,12 +147,10 @@
   }
   
   function onSelect(key) {
-    if (key === 'display') router.push('/main')
-    if (key === 'match') router.push('/match')
+    if (key === 'displayLiked') router.push({ path: '/match', query: { tab: 'likedMe' } })
   }
-  
-  function goBackLikes() {
-    router.push({ path: '/match', query: { tab: 'likes' } })
+  function goBackLikedMe() {
+    router.push({ path: '/match', query: { tab: 'likedMe' } })
   }
   
   async function load() {
