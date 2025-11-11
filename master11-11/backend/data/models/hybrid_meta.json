@@ -1,0 +1,38 @@
+{
+  "features_all": [
+    "similarity",
+    "complementarity",
+    "intention_fit",
+    "lifestyle",
+    "trust_safety",
+    "sim_kw",
+    "sim_city",
+    "sim_home",
+    "comp_gender",
+    "comp_age",
+    "comp_height",
+    "ver_score",
+    "med_score",
+    "like_score",
+    "risk_coef",
+    "age_diff_abs",
+    "height_diff_abs",
+    "sim_kw_x_life",
+    "intent_x_trust",
+    "comp_x_trust"
+  ],
+  "features_used": [
+    "sim_city",
+    "lifestyle",
+    "complementarity",
+    "sim_kw",
+    "intention_fit",
+    "trust_safety",
+    "similarity"
+  ],
+  "expected_dim": 7,
+  "calib": null,
+  "calib_mode": "none",
+  "auc_train": 0.814896449704142,
+  "auc_val": 0.7026777469990766
+}
