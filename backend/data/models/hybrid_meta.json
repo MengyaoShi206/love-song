@@ -1,0 +1,26 @@
+{
+  "features_used": [
+    "med_score",
+    "intention_fit",
+    "sim_kw",
+    "complementarity",
+    "comp_gender",
+    "lifestyle",
+    "sim_city",
+    "comp_age",
+    "similarity",
+    "sim_home",
+    "trust_safety"
+  ],
+  "expected_dim": 11,
+  "calib": [
+    "platt",
+    1.3202863775600768,
+    -0.572420676619878
+  ],
+  "calib_mode": "platt",
+  "cv_folds": 5,
+  "cv_auc_mean": 0.6145650329300861,
+  "cv_auc_std": 0.03533392006224194,
+  "n_samples": 1192
+}
